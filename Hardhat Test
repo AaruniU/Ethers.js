@@ -1,0 +1,83 @@
+hardhat.config.js
+-----------------
+
+require("@nomiclabs/hardhat-ethers");
+require("@nomiclabs/hardhat-waffle");
+
+module.exports = {
+  solidity: {
+    version: "0.8.8",
+  },
+  networks: {
+    hardhat:  {
+    },
+    goerli: {
+      url: "<PROVIDER URL>",
+      accounts: ["0x<PRIVATE KEY>"]
+    }
+  },
+  etherscan: {
+    apiKey: "<ETHERSCAN API KEY>"
+  },
+  paths: {
+    sources: "./contracts",
+    tests: "./test",
+    cache: "./cache",
+    artifacts: "./artifacts"
+  }
+}
+
+
+Hardhat Test
+------------
+
+const { expect } = require("chai");
+const { ethers, network } = require("hardhat");
+
+describe("Hello.sol", () => {
+
+    describe("Test run", () => {
+        it("should run fine", async () => {
+            
+            // Deploy contract
+            const [owner] = await ethers.getSigners(); 
+            const helloContract = await ethers.getContractFactory("Hello");
+            const hello = await helloContract.deploy();
+            await hello.deployed();
+        
+            // Deployer address
+            const deployerAddress = owner.address
+            console.log("deployerAddress = " + deployerAddress)
+
+            // Contract Address
+            const contractAddress = hello.address
+            console.log("contractAddress = " + contractAddress)
+            
+            // Read storage variables
+            const stor1 = await ethers.provider.getStorageAt(hello.address, 0);
+            const stor2 = await ethers.provider.getStorageAt(hello.address, 1);
+            console.log(stor1, stor2);
+            
+            // Call a view/pure function
+            const num = await hello.foo();
+            console.log(num);
+
+            // Simulate a non-view/pure function call        
+            // Functions that are not pure/view cannot return values off-chain
+            // callStatic provides a way to call such functions and ask the ethereum node to discard any state changes
+            // https://ethereum.stackexchange.com/questions/88119/i-see-no-way-to-obtain-the-return-value-of-a-non-view-function-ethers-js
+            const addone = await hello.callStatic.addOne();
+            console.log(addone);
+
+            // Read Events
+            // One way to execute non-view/pure function and read return value is to fire events from the function and then read its value from ethers.js
+            const tx = await hello.addOne();
+            const rc = await tx.wait();
+            const block = await ethers.provider.getBlockNumber()
+            const event = await hello.queryFilter("OneAdded", block-10, block)
+            console.log(event[0].args[0]);
+            console.log(event[0].args[1]);
+
+        });
+    });
+});
