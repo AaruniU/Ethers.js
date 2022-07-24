@@ -1,0 +1,283 @@
+Refrences:
+---------
+https://www.youtube.com/watch?v=Gg6nt3YW74o
+https://solidity-by-example.org/hacks/accessing-private-data/
+
+Solidity Contract:
+-----------------
+//Copied from the original source to preserve the code
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.13;
+
+/*
+Note: cannot use web3 on JVM, so use the contract deployed on ropsten
+Note: browser Web3 is old so use Web3 from truffle console
+
+Contract deployed on Ropsten
+0x3505a02BCDFbb225988161a95528bfDb279faD6b
+*/
+
+/*
+# Storage
+- 2 ** 256 slots
+- 32 bytes for each slot
+- data is stored sequentially in the order of declaration
+- storage is optimized to save space. If neighboring variables fit in a single
+  32 bytes, then they are packed into the same slot, starting from the right
+*/
+
+contract Vault {
+    // slot 0
+    uint public count = 123;
+    // slot 1
+    address public owner = msg.sender;
+    bool public isTrue = true;
+    uint16 public u16 = 31;
+    // slot 2
+    bytes32 private password;
+
+    // constants do not use storage
+    uint public constant someConst = 123;
+
+    // slot 3, 4, 5 (one for each array element)
+    bytes32[3] public data;
+
+    struct User {
+        uint id;
+        bytes32 password;
+    }
+
+    // slot 6 - length of array
+    // starting from slot hash(6) - array elements
+    // slot where array element is stored = keccak256(slot)) + (index * elementSize)
+    // where slot = 6 and elementSize = 2 (1 (uint) +  1 (bytes32))
+    User[] private users;
+
+    // slot 7 - empty
+    // entries are stored at hash(key, slot)
+    // where slot = 7, key = map key
+    mapping(uint => User) private idToUser;
+
+    constructor(bytes32 _password) {
+        password = _password;
+    }
+
+    function addUser(bytes32 _password) public {
+        User memory user = User({id: users.length, password: _password});
+
+        users.push(user);
+        idToUser[user.id] = user;
+    }
+
+    function getArrayLocation(
+        uint slot,
+        uint index,
+        uint elementSize
+    ) public pure returns (uint) {
+        return uint(keccak256(abi.encodePacked(slot))) + (index * elementSize);
+    }
+
+    function getMapLocation(uint slot, uint key) public pure returns (uint) {
+        return uint(keccak256(abi.encodePacked(key, slot)));
+    }
+}
+
+/*
+slot 0 - count
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", 0, console.log)
+slot 1 - u16, isTrue, owner
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", 1, console.log)
+slot 2 - password
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", 2, console.log)
+
+slot 6 - array length
+getArrayLocation(6, 0, 2)
+web3.utils.numberToHex("111414077815863400510004064629973595961579173665589224203503662149373724986687")
+Note: We can also use web3 to get data location
+web3.utils.soliditySha3({ type: "uint", value: 6 })
+1st user
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", "0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d3f", console.log)
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", "0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d40", console.log)
+Note: use web3.toAscii to convert bytes32 to alphabet
+2nd user
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", "0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d41", console.log)
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", "0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d42", console.log)
+
+slot 7 - empty
+getMapLocation(7, 1)
+web3.utils.numberToHex("81222191986226809103279119994707868322855741819905904417953092666699096963112")
+Note: We can also use web3 to get data location
+web3.utils.soliditySha3({ type: "uint", value: 1 }, {type: "uint", value: 7})
+user 1
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", "0xb39221ace053465ec3453ce2b36430bd138b997ecea25c1043da0c366812b828", console.log)
+web3.eth.getStorageAt("0x3505a02BCDFbb225988161a95528bfDb279faD6b", "0xb39221ace053465ec3453ce2b36430bd138b997ecea25c1043da0c366812b829", console.log)
+*/
+
+Hardhat Test.js
+---------------
+
+const { expect } = require("chai");
+const { ethers, network } = require("hardhat");
+
+describe("Vault.sol", () => {
+
+    describe("Run the contract", () => {
+        it("should run fine", async () => {
+            // Deploy contract
+            const [owner] = await ethers.getSigners(); 
+            const vaultContract = await ethers.getContractFactory("Vault");
+            // 0x61626364 is hex for "abcd" which we are passing as password to the constructor
+            const vault = await vaultContract.deploy("0x6162636400000000000000000000000000000000000000000000000000000000");
+            await vault.deployed();
+        
+            // Deployer address
+            const deployerAddress = owner.address
+            console.log("deployerAddress = " + deployerAddress)
+
+            // Contract Address
+            const contractAddress = vault.address
+            console.log("contractAddress = " + contractAddress)
+
+            console.log("\n")
+            
+            // Read storage variables
+
+            // state variable "count"
+            // 0x000000000000000000000000000000000000000000000000000000000000007b
+            const stor0 = await ethers.provider.getStorageAt(vault.address, 0);
+            
+            // state variables "owner", "isTrue" and "u16" as their combined size is < 32 bytes
+            // 0x000000000000000000001f01f39fd6e51aad88f6f4ce6ab8827279cfffb92266 = Slot 1
+            // 0x........................f39fd6e51aad88f6f4ce6ab8827279cfffb92266 = owner  (20 bytes)
+            // 0x......................01........................................ = isTrue (1 byte)
+            // 0x..................001f.......................................... = u16    (2 bytes)
+            const stor1 = await ethers.provider.getStorageAt(vault.address, 1);
+
+            // state variable "password"
+            // 0x6162636400000000000000000000000000000000000000000000000000000000
+            const stor2 = await ethers.provider.getStorageAt(vault.address, 2);
+            
+            // slots 3,4 5 for three elements of array "data"
+            const stor3 = await ethers.provider.getStorageAt(vault.address, 3);
+            const stor4 = await ethers.provider.getStorageAt(vault.address, 4);
+            const stor5 = await ethers.provider.getStorageAt(vault.address, 5);
+            
+            console.log("count: ", stor0)
+            console.log("owner + isTrue + u16: ", stor1)
+            console.log("password: ", stor2)
+            console.log("\n")
+            console.log("data[0]: ", stor3)
+            console.log("data[1]: ", stor4)
+            console.log("data[2]: ", stor5)
+            console.log("\n")
+
+            // Provide passwords for two new users
+            const tx1 = await vault.addUser("0x1111111100000000000000000000000000000000000000000000000000000000")
+            const tx2 = await vault.addUser("0x2222222200000000000000000000000000000000000000000000000000000000")
+
+            // slot 6 contains the length of dynamic array "users"
+            // 0x0000000000000000000000000000000000000000000000000000000000000002
+            const stor6 = await ethers.provider.getStorageAt(vault.address, 6);
+            console.log(stor6)
+
+            // First element of "users" array is stored at keccak256(<slot number>)
+            const startingArray = ethers.utils.solidityKeccak256(["uint256"], [6])
+            console.log("Array \"users\" starts at this address: ", startingArray)
+            console.log("\n")
+            
+            // Each element of "users" array has 2 values: (id, password)
+            
+            // First element of the "users" array 
+            // startingArray = 0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d3f
+            const arr0 = await ethers.provider.getStorageAt(vault.address, startingArray)
+            console.log(arr0)
+            // 0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d3f + 0x1 = 0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d40
+            const arr1 = await ethers.provider.getStorageAt(vault.address, "0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d40")
+            console.log(arr1)
+
+            // Second element of the "users" array
+            // 0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d40 + 0x1 = 0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d41
+            const arr2 = await ethers.provider.getStorageAt(vault.address, "0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d41")
+            console.log(arr2)
+            // 0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d41 + 0x1 = 0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d42
+            const arr3 = await ethers.provider.getStorageAt(vault.address, "0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d42")
+            console.log(arr3)
+            console.log("\n")
+
+            // Now let's read the slots for mapping
+            // Remember our mapping has a tuple (id, password) as its value
+
+            // Slot 7 is empty, entries are stored at keccak256(key, slot number)
+            const stor7 = await ethers.provider.getStorageAt(vault.address, 7);
+            console.log(stor7)
+
+            // Finding the slot where value of idToUser[0] is stored
+            const startingMapping0 = ethers.utils.solidityKeccak256(["uint256", "uint256"], [0, 7])
+            console.log("startingMapping0: ", startingMapping0)
+            console.log("\n")
+
+            // Get value of "id" for idToUser[0]
+            // 0x6d5257204ebe7d88fd91ae87941cb2dd9d8062b64ae5a2bd2d28ec40b9fbf6df
+            const map0 = await ethers.provider.getStorageAt(vault.address, startingMapping0)
+            console.log("\"id\" for idToUser[0]: ", map0)
+            // Get value of "password" for idToUser[0]
+            // 0x6d5257204ebe7d88fd91ae87941cb2dd9d8062b64ae5a2bd2d28ec40b9fbf6df + 0x1 = 0x6d5257204ebe7d88fd91ae87941cb2dd9d8062b64ae5a2bd2d28ec40b9fbf6e0
+            const map1 = await ethers.provider.getStorageAt(vault.address, "0x6d5257204ebe7d88fd91ae87941cb2dd9d8062b64ae5a2bd2d28ec40b9fbf6e0")
+            console.log("\"password\" for idToUser[0]: ", map1)
+            console.log("\n")
+            
+            // Finding the slot where value of idToUser[1] is stored
+            const startingMapping1 = ethers.utils.solidityKeccak256(["uint256", "uint256"], [1, 7])
+            console.log("startingMapping1: ", startingMapping1)
+            console.log("\n")
+
+            // Get "id" for idToUser[1]
+            // 0xb39221ace053465ec3453ce2b36430bd138b997ecea25c1043da0c366812b828
+            const map2 = await ethers.provider.getStorageAt(vault.address, startingMapping1)
+            console.log("\"id\" for idToUser[1]: ", map2)
+            // Get "password" for idToUser[1]
+            // 0xb39221ace053465ec3453ce2b36430bd138b997ecea25c1043da0c366812b828 + 0x1 = 0xb39221ace053465ec3453ce2b36430bd138b997ecea25c1043da0c366812b829
+            const map3 = await ethers.provider.getStorageAt(vault.address, "0xb39221ace053465ec3453ce2b36430bd138b997ecea25c1043da0c366812b829")
+            console.log("\"password\" for idToUser[1]: ", map3)
+        });
+    });
+});
+
+Output:
+-------
+root@ununtu-vm:/home/user/Desktop/hardhat/ReadStorage# npx hardhat test
+
+  Vault.sol
+    Run the contract
+deployerAddress = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+contractAddress = 0x5FbDB2315678afecb367f032d93F642f64180aa3
+
+count:  0x000000000000000000000000000000000000000000000000000000000000007b
+owner + isTrue + u16:  0x000000000000000000001f01f39fd6e51aad88f6f4ce6ab8827279cfffb92266
+password:  0x6162636400000000000000000000000000000000000000000000000000000000
+
+data[0]:  0x0000000000000000000000000000000000000000000000000000000000000000
+data[1]:  0x0000000000000000000000000000000000000000000000000000000000000000
+data[2]:  0x0000000000000000000000000000000000000000000000000000000000000000
+
+0x0000000000000000000000000000000000000000000000000000000000000002
+Array "users" starts at this address:  0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d3f
+
+0x0000000000000000000000000000000000000000000000000000000000000000
+0x1111111100000000000000000000000000000000000000000000000000000000
+0x0000000000000000000000000000000000000000000000000000000000000001
+0x2222222200000000000000000000000000000000000000000000000000000000
+
+0x0000000000000000000000000000000000000000000000000000000000000000
+startingMapping0:  0x6d5257204ebe7d88fd91ae87941cb2dd9d8062b64ae5a2bd2d28ec40b9fbf6df
+
+"id" for idToUser[0]:  0x0000000000000000000000000000000000000000000000000000000000000000
+"password" for idToUser[0]:  0x1111111100000000000000000000000000000000000000000000000000000000
+
+startingMapping1:  0xb39221ace053465ec3453ce2b36430bd138b997ecea25c1043da0c366812b828
+
+"id" for idToUser[1]:  0x0000000000000000000000000000000000000000000000000000000000000001
+"password" for idToUser[1]:  0x2222222200000000000000000000000000000000000000000000000000000000
+      ✔ should run fine (1168ms)
+
+  1 passing (1s)
